@@ -20,3 +20,22 @@ import base64
 from streamlit_drawable_canvas import st_canvas
 import numpy as np
 from services.erase_foreground import erase_foreground
+
+# Configure Streamlit page
+st.set_page_config(
+    page_title="LyTa Studio",
+    page_icon="🎨",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Load environment variables
+print("Loading environment variables...")
+load_dotenv(verbose=True)  # Add verbose=True to see loading details
+
+# Debug: Print environment variable status
+api_key = os.getenv("BRIA_API_KEY")
+print(f"API Key present: {bool(api_key)}")
+print(f"API Key value: {api_key if api_key else 'Not found'}")
+print(f"Current working directory: {os.getcwd()}")
+print(f".env file exists: {os.path.exists('.env')}")
