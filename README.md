@@ -27,3 +27,40 @@ Run the app:
 ```bash
 streamlit run app.py
 ```
+
+## 💡 Usage
+
+1.  Enter a product description or upload an image
+2.  Configure generation options in the sidebar:
+    - Enhance prompt with AI
+    - Remove background
+    - Add shadows
+    - Generate lifestyle shots
+3. Adjust advanced settingd like background color and intensity
+4. Click "Gemnerate Ad" to create your images
+5. Download results
+
+## 🔧 Configuration
+
+The app supports various configuration options through the UI:
+
+- **Prompt Enhancement**: Improve your text prompts with AI
+- **Background Removal**: Remove backgrounds with custom colors
+- **Shadow Effects**: Add realistic shadows with adjustable intensity
+- **Lifestyle**: Place products in context using text or refernce images
+- **CTA Text**: Add optional call-totaction text overlays
+
+## 🤝 Contributing
+
+1.  Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-features`)
+3. Commit your changes (`git commit -m "Add amazing features`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open  a Pull Request
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [Bria AI](https://bria.ai) for their powerful image generation APIs
+- [Streamlit](https://streamlit.io) for the amazing web framework 
