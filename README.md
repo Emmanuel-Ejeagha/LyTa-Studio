@@ -50,7 +50,7 @@ The app supports various configuration options through the UI:
 - **Lifestyle**: Place products in context using text or refernce images
 - **CTA Text**: Add optional call-totaction text overlays
 
-## 🤝 Contributing
+## 🤝 Contributing 
 
 1.  Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-features`)
