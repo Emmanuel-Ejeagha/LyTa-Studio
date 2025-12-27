@@ -95,3 +95,32 @@ def apply_image_filter(image, filter_type):
     except Exception as e:
         st.error(f"Error applying filter: {str(e)}")
         return None
+
+def check_generated_images():
+    """Check if pending images are ready and update the display."""
+    if st.session_state.pending_urls:
+        ready_images = []
+        still_pending = []
+        
+        for url in st.session_state.pending_urls:
+            try:
+                response = requests.head(url)
+                # Consider an image ready if we get a 200 response with any content length
+                if response.status_code == 200:
+                    ready_images.append(url)
+                else:
+                    still_pending.append(url)
+            except Exception as e:
+                still_pending.append(url)
+        
+        # Update the pending URLs list
+        st.session_state.pending_urls = still_pending
+        
+        # If we found any ready images, update the display
+        if ready_images:
+            st.session_state.edited_image = ready_images[0]  # Display the first ready image
+            if len(ready_images) > 1:
+                st.session_state.generated_images = ready_images  # Store all ready images
+            return True
+            
+    return False
