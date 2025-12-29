@@ -166,6 +166,18 @@ st.markdown("""
         overflow: hidden;
         box-shadow: var(--shadow);
         margin: 1rem 0;
+        max-width: 100% !important;
+    }
+    
+    /* Image sizing */
+    .stImage > img, .stImage > div > img {
+        max-width: 800px !important;
+        max-height: 600px !important;
+        width: auto !important;
+        height: auto !important;
+        object-fit: contain !important;
+        margin: 0 auto !important;
+        display: block !important;
     }
     
     /* Status Badges */
@@ -245,7 +257,9 @@ def initialize_session_state():
         'active_tab': 0,
         'processing': False,
         'last_result': None,
-        'generation_history': []
+        'generation_history': [],
+        'image_quality': 85,  # Default quality for resizing
+        'display_width': 800   # Default display width
     }
     
     for key, value in defaults.items():
@@ -255,7 +269,50 @@ def initialize_session_state():
 # ===========================================
 # UTILITY FUNCTIONS
 # ===========================================
-def download_image(url):
+def resize_image(image_bytes, max_width=800, quality=85):
+    """Resize image to reduce file size for display."""
+    try:
+        # Open image from bytes
+        img = Image.open(io.BytesIO(image_bytes))
+        
+        # Get original dimensions
+        original_width, original_height = img.size
+        
+        # Calculate new dimensions maintaining aspect ratio
+        if original_width > max_width:
+            ratio = max_width / original_width
+            new_width = max_width
+            new_height = int(original_height * ratio)
+            
+            # Resize image
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Convert to RGB if needed (for JPEG)
+        if img.mode in ('RGBA', 'LA', 'P'):
+            # Create a white background
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'RGBA':
+                # Composite the image onto the background
+                background.paste(img, mask=img.split()[-1])
+                img = background
+            else:
+                img = img.convert('RGB')
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # Save to bytes with reduced quality
+        output_bytes = io.BytesIO()
+        img.save(output_bytes, format='JPEG', quality=quality, optimize=True)
+        
+        # Get file size
+        file_size_kb = len(output_bytes.getvalue()) / 1024
+        
+        return output_bytes.getvalue(), file_size_kb, img.size
+    except Exception as e:
+        st.error(f"❌ Error resizing image: {str(e)}")
+        return image_bytes, len(image_bytes) / 1024, None
+
+def download_image(url, resize_for_display=True, max_width=800, quality=85):
     """Download image from URL and return as bytes."""
     try:
         # Add timeout and headers for better compatibility
@@ -265,12 +322,37 @@ def download_image(url):
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         
-        # Check content type
-        content_type = response.headers.get('content-type', '')
-        if not content_type.startswith('image/'):
-            st.warning(f"URL returned non-image content: {content_type}")
+        original_bytes = response.content
+        original_size_kb = len(original_bytes) / 1024
+        
+        # Check if we should resize for display
+        if resize_for_display:
+            resized_bytes, resized_size_kb, new_dimensions = resize_image(
+                original_bytes, 
+                max_width=max_width, 
+                quality=quality
+            )
             
-        return response.content
+            # Log size reduction
+            reduction_percent = ((original_size_kb - resized_size_kb) / original_size_kb) * 100
+            st.info(f"📏 Image optimized: {original_size_kb:.1f}KB → {resized_size_kb:.1f}KB ({reduction_percent:.1f}% smaller)")
+            
+            return {
+                'original': original_bytes,
+                'resized': resized_bytes,
+                'original_size_kb': original_size_kb,
+                'resized_size_kb': resized_size_kb,
+                'dimensions': new_dimensions
+            }
+        else:
+            return {
+                'original': original_bytes,
+                'resized': original_bytes,
+                'original_size_kb': original_size_kb,
+                'resized_size_kb': original_size_kb,
+                'dimensions': None
+            }
+            
     except requests.exceptions.Timeout:
         st.error("❌ Timeout error downloading image. The server is taking too long to respond.")
         return None
@@ -287,9 +369,6 @@ def extract_image_urls_from_response(result):
     
     if not result:
         return image_urls
-    
-    # Debug: Show raw response structure
-    st.write(f"Debug - Response type: {type(result)}")
     
     if isinstance(result, dict):
         # Format 1: {"result": [{"urls": ["url1", "url2"]}, ...]}
@@ -412,15 +491,6 @@ def main():
     # Initialize session state
     initialize_session_state()
     
-    # Debug section (can be collapsed)
-    with st.expander("🔍 Debug Information", expanded=False):
-        st.write("Session State:", {
-            "api_key_present": bool(st.session_state.api_key),
-            "generated_images_count": len(st.session_state.get('generated_images', [])),
-            "edited_image": st.session_state.get('edited_image'),
-            "processing": st.session_state.get('processing', False)
-        })
-    
     # ===========================================
     # HEADER SECTION
     # ===========================================
@@ -457,6 +527,30 @@ def main():
         
         st.markdown("---")
         
+        # Image Display Settings
+        with st.expander("🖼️ Display Settings", expanded=True):
+            st.session_state.display_width = st.slider(
+                "Max Display Width (px)",
+                min_value=400,
+                max_value=1200,
+                value=800,
+                step=100,
+                help="Maximum width for displayed images"
+            )
+            
+            st.session_state.image_quality = st.slider(
+                "Image Quality (%)",
+                min_value=50,
+                max_value=100,
+                value=85,
+                step=5,
+                help="Quality for displayed images (lower = smaller file size)"
+            )
+            
+            st.info(f"Display: {st.session_state.display_width}px width at {st.session_state.image_quality}% quality")
+        
+        st.markdown("---")
+        
         # Quick Stats
         st.markdown("## 📊 Quick Stats")
         col1, col2 = st.columns(2)
@@ -478,9 +572,10 @@ def main():
             - Try different aspect ratios
             - Enable content moderation for safe generation
             
-            **API Response Formats:**
-            - Supports multiple BRIA API response formats
-            - Automatic URL extraction from responses
+            **Image Optimization:**
+            - Adjust display width in sidebar
+            - Lower quality = smaller file size
+            - Images are optimized for web display
             """)
         
         # Clear Results Button
@@ -621,20 +716,11 @@ def main():
                                     "timestamp": time.time()
                                 })
                                 st.success(f"✨ Generated {len(image_urls)} image(s) successfully!")
-                                
-                                # Debug: Show extracted URLs
-                                with st.expander("📋 Generated URLs"):
-                                    for i, url in enumerate(image_urls):
-                                        st.write(f"Image {i+1}: {url}")
                             else:
                                 st.error("❌ No image URLs found in API response")
-                                # Debug: Show raw response
-                                with st.expander("📋 Raw API Response"):
-                                    st.json(result)
                                     
                         except Exception as e:
                             st.error(f"❌ Generation failed: {str(e)}")
-                            st.write("Error details:", str(e))
                         finally:
                             st.session_state.processing = False
                             st.rerun()
@@ -650,40 +736,98 @@ def main():
             
             for idx, img_url in enumerate(st.session_state.generated_images):
                 with cols[idx % num_cols]:
-                    # Display image with caption
-                    st.image(
+                    # Download and resize image
+                    image_data = download_image(
                         img_url,
-                        caption=f"Image {idx+1}",
-                        use_column_width=True
+                        resize_for_display=True,
+                        max_width=st.session_state.display_width,
+                        quality=st.session_state.image_quality
                     )
                     
-                    # Download button
-                    image_data = download_image(img_url)
                     if image_data:
-                        st.download_button(
-                            f"⬇️ Download {idx+1}",
-                            image_data,
-                            f"generated_image_{idx+1}.png",
-                            "image/png",
-                            use_container_width=True,
-                            key=f"download_{idx}"
+                        # Display resized image
+                        st.image(
+                            image_data['resized'],
+                            caption=f"Image {idx+1}",
+                            use_column_width=True
                         )
+                        
+                        # Show image info
+                        with st.expander(f"📊 Image {idx+1} Info"):
+                            col_info1, col_info2 = st.columns(2)
+                            with col_info1:
+                                st.metric("Original Size", f"{image_data['original_size_kb']:.1f}KB")
+                            with col_info2:
+                                st.metric("Display Size", f"{image_data['resized_size_kb']:.1f}KB")
+                            
+                            if image_data['dimensions']:
+                                st.write(f"Display dimensions: {image_data['dimensions'][0]}x{image_data['dimensions'][1]}px")
+                        
+                        # Download buttons for both original and resized
+                        col_dl1, col_dl2 = st.columns(2)
+                        with col_dl1:
+                            st.download_button(
+                                "⬇️ Original",
+                                image_data['original'],
+                                f"original_image_{idx+1}.png",
+                                "image/png",
+                                use_container_width=True,
+                                key=f"download_original_{idx}"
+                            )
+                        with col_dl2:
+                            st.download_button(
+                                "⬇️ Optimized",
+                                image_data['resized'],
+                                f"optimized_image_{idx+1}.jpg",
+                                "image/jpeg",
+                                use_container_width=True,
+                                key=f"download_optimized_{idx}"
+                            )
         
-        # Display single edited image if available
+        # Display single edited image if available (for backward compatibility)
         elif st.session_state.edited_image:
             st.markdown("---")
             st.markdown("## 🖼️ Generated Image")
-            st.image(st.session_state.edited_image, use_column_width=True)
             
-            image_data = download_image(st.session_state.edited_image)
+            image_data = download_image(
+                st.session_state.edited_image,
+                resize_for_display=True,
+                max_width=st.session_state.display_width,
+                quality=st.session_state.image_quality
+            )
+            
             if image_data:
-                st.download_button(
-                    "⬇️ Download Image",
-                    image_data,
-                    "generated_image.png",
-                    "image/png",
-                    use_container_width=True
-                )
+                st.image(image_data['resized'], use_column_width=True)
+                
+                # Show image info
+                with st.expander("📊 Image Info"):
+                    col_info1, col_info2 = st.columns(2)
+                    with col_info1:
+                        st.metric("Original Size", f"{image_data['original_size_kb']:.1f}KB")
+                    with col_info2:
+                        st.metric("Display Size", f"{image_data['resized_size_kb']:.1f}KB")
+                    
+                    if image_data['dimensions']:
+                        st.write(f"Display dimensions: {image_data['dimensions'][0]}x{image_data['dimensions'][1]}px")
+                
+                # Download buttons
+                col_dl1, col_dl2 = st.columns(2)
+                with col_dl1:
+                    st.download_button(
+                        "⬇️ Original Image",
+                        image_data['original'],
+                        "original_image.png",
+                        "image/png",
+                        use_container_width=True
+                    )
+                with col_dl2:
+                    st.download_button(
+                        "⬇️ Optimized Image",
+                        image_data['resized'],
+                        "optimized_image.jpg",
+                        "image/jpeg",
+                        use_container_width=True
+                    )
     
     # ===========================================
     # TAB 2: PRODUCT STUDIO
@@ -703,12 +847,29 @@ def main():
             col_img, col_edit = st.columns([2, 3])
             
             with col_img:
-                # Image Preview
+                # Image Preview (resized)
                 st.markdown("### 📷 Original")
-                st.image(uploaded_file, use_column_width=True)
+                # Resize uploaded image for display
+                img = Image.open(uploaded_file)
+                original_size = img.size
+                
+                # Resize for display
+                if img.size[0] > st.session_state.display_width:
+                    ratio = st.session_state.display_width / img.size[0]
+                    new_size = (st.session_state.display_width, int(img.size[1] * ratio))
+                    img_resized = img.resize(new_size, Image.Resampling.LANCZOS)
+                    
+                    # Convert to bytes
+                    buffer = io.BytesIO()
+                    img_resized.save(buffer, format='JPEG', quality=st.session_state.image_quality)
+                    buffer.seek(0)
+                    
+                    st.image(buffer, use_column_width=True)
+                    st.caption(f"Display: {new_size[0]}x{new_size[1]}px (Original: {original_size[0]}x{original_size[1]}px)")
+                else:
+                    st.image(uploaded_file, use_column_width=True)
                 
                 # Quick Stats
-                img = Image.open(uploaded_file)
                 col_stats1, col_stats2, col_stats3 = st.columns(3)
                 with col_stats1:
                     st.metric("Dimensions", f"{img.width}×{img.height}")
@@ -742,10 +903,9 @@ def main():
                                     if image_urls:
                                         st.session_state.edited_image = image_urls[0]
                                         st.success("Packshot created!")
+                                        st.rerun()
                                     else:
                                         st.error("No image URL in response")
-                                        with st.expander("Raw Response"):
-                                            st.json(result)
                             except Exception as e:
                                 st.error(f"Error: {str(e)}")
                 
@@ -764,6 +924,7 @@ def main():
                                     if image_urls:
                                         st.session_state.edited_image = image_urls[0]
                                         st.success("Shadow added!")
+                                        st.rerun()
                                     else:
                                         st.error("No image URL in response")
                             except Exception as e:
@@ -788,6 +949,7 @@ def main():
                                     if image_urls:
                                         st.session_state.edited_image = image_urls[0]
                                         st.success("Lifestyle shot created!")
+                                        st.rerun()
                                     else:
                                         st.error("No image URL in response")
                             except Exception as e:
@@ -795,17 +957,44 @@ def main():
         
         # Display edited image if available
         if st.session_state.edited_image and uploaded_file:
+            st.markdown("---")
             st.markdown("### 📸 Result")
-            st.image(st.session_state.edited_image, use_column_width=True)
-            image_data = download_image(st.session_state.edited_image)
+            
+            image_data = download_image(
+                st.session_state.edited_image,
+                resize_for_display=True,
+                max_width=st.session_state.display_width,
+                quality=st.session_state.image_quality
+            )
+            
             if image_data:
-                st.download_button(
-                    "⬇️ Download Result",
-                    image_data,
-                    "result.png",
-                    "image/png",
-                    use_container_width=True
-                )
+                st.image(image_data['resized'], use_column_width=True)
+                
+                # Show image info
+                with st.expander("📊 Image Info"):
+                    col_info1, col_info2 = st.columns(2)
+                    with col_info1:
+                        st.metric("Original Size", f"{image_data['original_size_kb']:.1f}KB")
+                    with col_info2:
+                        st.metric("Display Size", f"{image_data['resized_size_kb']:.1f}KB")
+                
+                col_dl1, col_dl2 = st.columns(2)
+                with col_dl1:
+                    st.download_button(
+                        "⬇️ Download Original",
+                        image_data['original'],
+                        "result_original.png",
+                        "image/png",
+                        use_container_width=True
+                    )
+                with col_dl2:
+                    st.download_button(
+                        "⬇️ Download Optimized",
+                        image_data['resized'],
+                        "result_optimized.jpg",
+                        "image/jpeg",
+                        use_container_width=True
+                    )
     
     # ===========================================
     # TAB 3: GENERATIVE FILL
@@ -820,10 +1009,20 @@ def main():
             col1, col2 = st.columns(2)
             
             with col1:
-                st.image(uploaded_file, caption="Original Image", use_column_width=True)
+                # Display original (resized)
+                img = Image.open(uploaded_file)
+                if img.size[0] > 600:
+                    ratio = 600 / img.size[0]
+                    new_size = (600, int(img.size[1] * ratio))
+                    img_resized = img.resize(new_size, Image.Resampling.LANCZOS)
+                    buffer = io.BytesIO()
+                    img_resized.save(buffer, format='JPEG', quality=85)
+                    buffer.seek(0)
+                    st.image(buffer, caption="Original Image", use_column_width=True)
+                else:
+                    st.image(uploaded_file, caption="Original Image", use_column_width=True)
                 
                 # Get image for canvas
-                img = Image.open(uploaded_file)
                 img_width, img_height = img.size
                 aspect_ratio = img_height / img_width
                 canvas_width = min(img_width, 600)
@@ -872,6 +1071,7 @@ def main():
                                     if image_urls:
                                         st.session_state.edited_image = image_urls[0]
                                         st.success("Generation complete!")
+                                        st.rerun()
                                     else:
                                         st.error("No image URL in response")
                             except Exception as e:
@@ -879,16 +1079,33 @@ def main():
             
             with col2:
                 if st.session_state.edited_image:
-                    st.image(st.session_state.edited_image, caption="Generated Result", use_column_width=True)
-                    image_data = download_image(st.session_state.edited_image)
+                    image_data = download_image(
+                        st.session_state.edited_image,
+                        resize_for_display=True,
+                        max_width=st.session_state.display_width,
+                        quality=st.session_state.image_quality
+                    )
+                    
                     if image_data:
-                        st.download_button(
-                            "⬇️ Download",
-                            image_data,
-                            "generated.png",
-                            "image/png",
-                            use_container_width=True
-                        )
+                        st.image(image_data['resized'], caption="Generated Result", use_column_width=True)
+                        
+                        col_dl1, col_dl2 = st.columns(2)
+                        with col_dl1:
+                            st.download_button(
+                                "⬇️ Original",
+                                image_data['original'],
+                                "generated_original.png",
+                                "image/png",
+                                use_container_width=True
+                            )
+                        with col_dl2:
+                            st.download_button(
+                                "⬇️ Optimized",
+                                image_data['resized'],
+                                "generated_optimized.jpg",
+                                "image/jpeg",
+                                use_container_width=True
+                            )
     
     # ===========================================
     # TAB 4: CLEANUP
@@ -903,10 +1120,20 @@ def main():
             col1, col2 = st.columns(2)
             
             with col1:
-                st.image(uploaded_file, caption="Original Image", use_column_width=True)
+                # Display original (resized)
+                img = Image.open(uploaded_file)
+                if img.size[0] > 600:
+                    ratio = 600 / img.size[0]
+                    new_size = (600, int(img.size[1] * ratio))
+                    img_resized = img.resize(new_size, Image.Resampling.LANCZOS)
+                    buffer = io.BytesIO()
+                    img_resized.save(buffer, format='JPEG', quality=85)
+                    buffer.seek(0)
+                    st.image(buffer, caption="Original Image", use_column_width=True)
+                else:
+                    st.image(uploaded_file, caption="Original Image", use_column_width=True)
                 
                 # Get image for canvas
-                img = Image.open(uploaded_file)
                 img_width, img_height = img.size
                 aspect_ratio = img_height / img_width
                 canvas_width = min(img_width, 600)
@@ -942,6 +1169,7 @@ def main():
                                     if image_urls:
                                         st.session_state.edited_image = image_urls[0]
                                         st.success("Area erased successfully!")
+                                        st.rerun()
                                     else:
                                         st.error("No image URL in response")
                             except Exception as e:
@@ -949,16 +1177,33 @@ def main():
             
             with col2:
                 if st.session_state.edited_image:
-                    st.image(st.session_state.edited_image, caption="Cleaned Image", use_column_width=True)
-                    image_data = download_image(st.session_state.edited_image)
+                    image_data = download_image(
+                        st.session_state.edited_image,
+                        resize_for_display=True,
+                        max_width=st.session_state.display_width,
+                        quality=st.session_state.image_quality
+                    )
+                    
                     if image_data:
-                        st.download_button(
-                            "⬇️ Download",
-                            image_data,
-                            "cleaned.png",
-                            "image/png",
-                            use_container_width=True
-                        )
+                        st.image(image_data['resized'], caption="Cleaned Image", use_column_width=True)
+                        
+                        col_dl1, col_dl2 = st.columns(2)
+                        with col_dl1:
+                            st.download_button(
+                                "⬇️ Original",
+                                image_data['original'],
+                                "cleaned_original.png",
+                                "image/png",
+                                use_container_width=True
+                            )
+                        with col_dl2:
+                            st.download_button(
+                                "⬇️ Optimized",
+                                image_data['resized'],
+                                "cleaned_optimized.jpg",
+                                "image/jpeg",
+                                use_container_width=True
+                            )
     
     # ===========================================
     # FOOTER
