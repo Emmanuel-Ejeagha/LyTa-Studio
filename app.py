@@ -497,7 +497,7 @@ def main():
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         st.markdown("# 🎨 LyTa Studio Pro")
-        st.markdown("### Professional AI-Powered Image Editing Suite")
+        st.markdown("### LyTa AI-Powered Image Editing Suite")
     with col3:
         st.markdown("---")
         st.caption("⚡ Powered by BRIA AI")
@@ -648,7 +648,29 @@ def main():
         with col_a:
             if st.session_state.enhanced_prompt:
                 st.markdown("### ✨ Enhanced Prompt")
-                st.info(st.session_state.enhanced_prompt)
+                # Custom styled container with better visibility
+                st.markdown(
+                    f"""
+                    <div style="
+                        background-color: #f8f9fa;
+                        border: 1px solid #dee2e6;
+                        border-radius: 8px;
+                        padding: 16px;
+                        margin: 10px 0;
+                        color: #212529;
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        font-size: 14px;
+                        line-height: 1.5;
+                        white-space: pre-wrap;
+                        max-height: 150px;
+                        overflow-y: auto;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    ">
+                        {st.session_state.enhanced_prompt}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
         
         with col_b:
             if st.button("✨ Enhance Prompt", use_container_width=True, disabled=not prompt):
@@ -664,7 +686,7 @@ def main():
                                 st.rerun()
                         except Exception as e:
                             st.error(f"Error: {str(e)}")
-        
+
         # Generate Button
         col_gen1, col_gen2, col_gen3 = st.columns([1, 2, 1])
         with col_gen2:
