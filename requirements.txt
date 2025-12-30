@@ -1,6 +1,6 @@
-streamlit
-requests
-python-dotenv
-Pillow
-numpy
-streamlit-drawable-canvas
+streamlit==1.32.0
+requests==2.31.0
+python-dotenv==1.0.1
+Pillow==10.3.0 --only-binary=:all:
+numpy==1.24.0
+streamlit-drawable-canvas==0.9.3
